@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Food Finder Map</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; }
+    .container { display: flex; height: 100vh; }
+    #sidebar {
+      width: 350px;
+      overflow-y: auto;
+      padding: 15px;
+      border-right: 1px solid #ddd;
+      background: #f7f7f7;
+    }
+    #map { flex: 1; }
+    input, select, button {
+      width: 100%;
+      padding: 8px;
+      margin: 5px 0;
+      box-sizing: border-box;
+    }
+    .result {
+      border-bottom: 1px solid #ddd;
+      padding: 8px 0;
+      cursor: pointer;
+    }
+    .result:hover { background: #eee; }
+  </style>
+</head>
+
+<body>
+
+<div class="container">
+  <div id="sidebar">
+    <h2>Find Food</h2>
+    <input id="searchInput" placeholder="Enter ZIP or address" />
+    <select id="radiusSelect">
+      <option value="1">1 mile</option>
+      <option value="5" selected>5 miles</option>
+      <option value="10">10 miles</option>
+      <option value="25">25 miles</option>
+    </select>
+    <button onclick="searchLocations()">Search</button>
+    <div id="results"></div>
+  </div>
+  <div id="map"></div>
+</div>
+
+<script>
+  var map = L.map('map').setView([27.85, -82.65], 10);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  let locations = [];
+  let markers = [];
+
+  fetch('Food_Resources_by_County.csv')
+    .then(response => response.text())
+    .then(text => {
+      const rows = text.split('\n').slice(1);
+      rows.forEach(row => {
+        const cols = row.split(',');
+        if(cols.length > 5) {
+          locations.push({
+            name: cols[0],
+            address: cols[1] + ", " + cols[2] + ", FL " + cols[3],
+            county: cols[4]
+          });
+        }
+      });
+    });
+
+  function searchLocations() {
+    let query = document.getElementById("searchInput").value;
+    let radius = parseInt(document.getElementById("radiusSelect").value);
+
+    if(!query) {
+      alert("Enter a ZIP or address");
+      return;
+    }
+
+    fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`)
+      .then(res => res.json())
+      .then(data => {
+        if(data.length === 0) {
+          alert("Location not found");
+          return;
+        }
+
+        let lat = parseFloat(data[0].lat);
+        let lon = parseFloat(data[0].lon);
+
+        map.setView([lat, lon], 12);
+
+        markers.forEach(m => map.removeLayer(m));
+        markers = [];
+
+        document.getElementById("results").innerHTML = "";
+
+        locations.forEach(loc => {
+          fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(loc.address)}`)
+            .then(r => r.json())
+            .then(g => {
+              if(g.length > 0) {
+                let locLat = parseFloat(g[0].lat);
+                let locLon = parseFloat(g[0].lon);
+
+                let distance = getDistance(lat, lon, locLat, locLon);
+
+                if(distance <= radius) {
+                  let marker = L.marker([locLat, locLon]).addTo(map)
+                    .bindPopup(`<b>${loc.name}</b><br>${loc.address}`);
+
+                  markers.push(marker);
+
+                  let div = document.createElement("div");
+                  div.className = "result";
+                  div.innerHTML = `<strong>${loc.name}</strong><br>${loc.address}<br>${distance.toFixed(1)} miles`;
+                  div.onclick = () => {
+                    map.setView([locLat, locLon], 14);
+                    marker.openPopup();
+                  };
+                  document.getElementById("results").appendChild(div);
+                }
+              }
+            });
+        });
+      });
+  }
+
+  function getDistance(lat1, lon1, lat2, lon2) {
+    const R = 3958.8;
+    const toRad = x => x * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+  }
+</script>
+
+</body>
+</html>
